@@ -40,60 +40,112 @@ def load_data():
 @st.cache_resource
 def train_models():
     df = load_data()
+
     targets = {
         "AHRR": "AHRR_Gene_Methylation_BetaValue",
         "NR3C1": "NR3C1_Gene_Methylation_BetaValue",
         "PGC1α": "PGC1a_Gene_Methylation_BetaValue",
     }
+
     feature_sets = {
         "AHRR": ["Maternal_Age", "Smoking_Status"],
         "NR3C1": ["Maternal_Age", "Maternal_Stress_Index_1to10"],
-        "PGC1α": ["Maternal_Age", "Diet_Quality_Score_1to100",
-                  "Physical_Activity_Hours_Per_Week", "Fasting_Glucose_mgdL"],
+        "PGC1α": [
+            "Maternal_Age",
+            "Diet_Quality_Score_1to100",
+            "Physical_Activity_Hours_Per_Week",
+            "Fasting_Glucose_mgdL",
+        ],
     }
+
     models, metrics, importances, distributions = {}, {}, {}, {}
-    cv = RepeatedKFold(n_splits=5, n_repeats=10, random_state=42)
+
+    cv = RepeatedKFold(
+        n_splits=5,
+        n_repeats=10,
+        random_state=42
+    )
+
+    categorical_by_model = {
+        "AHRR": ["Smoking_Status"],
+        "NR3C1": [],
+        "PGC1α": [],
+    }
 
     for name, target in targets.items():
         features = feature_sets[name]
-        X, y = df[features], df[target]
-        categorical_by_model = {
-    "AHRR": ["Smoking_Status"],
-    "NR3C1": [],
-    "PGC1α": [],
-}
+        X = df[features]
+        y = df[target]
 
-cats = categorical_by_model[name]
-nums = [c for c in features if c not in cats]
+        cats = categorical_by_model[name]
+        nums = [c for c in features if c not in cats]
 
-transformers = []
+        transformers = []
 
-if cats:
-    transformers.append(
-        ("cat", OneHotEncoder(handle_unknown="ignore"), cats)
-    )
+        if cats:
+            transformers.append(
+                (
+                    "cat",
+                    OneHotEncoder(handle_unknown="ignore"),
+                    cats,
+                )
+            )
 
-if nums:
-    transformers.append(
-        ("num", StandardScaler(), nums)
-    )
+        if nums:
+            transformers.append(
+                (
+                    "num",
+                    StandardScaler(),
+                    nums,
+                )
+            )
 
-prep = ColumnTransformer(
-    transformers=transformers,
-    remainder="drop"
-)
-        pipe = Pipeline([("prep", prep), ("model", Ridge(alpha=1.0))])
-        scores = cross_validate(
-            pipe, X, y, cv=cv,
-            scoring={"mae":"neg_mean_absolute_error",
-                     "rmse":"neg_root_mean_squared_error", "r2":"r2"},
-            return_train_score=False
+        prep = ColumnTransformer(
+            transformers=transformers,
+            remainder="drop",
         )
+
+        pipe = Pipeline(
+            [
+                ("prep", prep),
+                ("model", Ridge(alpha=1.0)),
+            ]
+        )
+
+        scores = cross_validate(
+            pipe,
+            X,
+            y,
+            cv=cv,
+            scoring={
+                "mae": "neg_mean_absolute_error",
+                "rmse": "neg_root_mean_squared_error",
+                "r2": "r2",
+            },
+            return_train_score=False,
+        )
+
         metrics[name] = {
             "MAE": float(-scores["test_mae"].mean()),
             "RMSE": float(-scores["test_rmse"].mean()),
             "R2": float(scores["test_r2"].mean()),
         }
+
+        pipe.fit(X, y)
+        models[name] = pipe
+
+        importances[name] = permutation_importance(
+            pipe,
+            X,
+            y,
+            n_repeats=30,
+            random_state=42,
+            scoring="neg_mean_absolute_error",
+        )
+
+        distributions[name] = y.to_numpy()
+
+    return models, metrics, importances, distributions
         pipe.fit(X, y)
         models[name] = pipe
         p = permutation_importance(
