@@ -57,12 +57,31 @@ def train_models():
     for name, target in targets.items():
         features = feature_sets[name]
         X, y = df[features], df[target]
-        cats = [c for c in features if X[c].dtype == "object"]
-        nums = [c for c in features if c not in cats]
-        prep = ColumnTransformer([
-            ("cat", OneHotEncoder(handle_unknown="ignore"), cats),
-            ("num", StandardScaler(), nums),
-        ])
+        categorical_by_model = {
+    "AHRR": ["Smoking_Status"],
+    "NR3C1": [],
+    "PGC1α": [],
+}
+
+cats = categorical_by_model[name]
+nums = [c for c in features if c not in cats]
+
+transformers = []
+
+if cats:
+    transformers.append(
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cats)
+    )
+
+if nums:
+    transformers.append(
+        ("num", StandardScaler(), nums)
+    )
+
+prep = ColumnTransformer(
+    transformers=transformers,
+    remainder="drop"
+)
         pipe = Pipeline([("prep", prep), ("model", Ridge(alpha=1.0))])
         scores = cross_validate(
             pipe, X, y, cv=cv,
